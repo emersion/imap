@@ -11,7 +11,7 @@ import (
 
 // imap errors in Authenticated state.
 var (
-	ErrNotAuthenticated = errors.New("Not authenticated")
+	ErrNotAuthenticated = errors.New("not authenticated")
 )
 
 type Select struct {
@@ -31,7 +31,7 @@ func (cmd *Select) Handle(conn Conn) error {
 
 	items := []imap.StatusItem{
 		imap.StatusMessages, imap.StatusRecent, imap.StatusUnseen,
-		imap.StatusUidNext, imap.StatusUidValidity,
+		imap.StatusUIDNext, imap.StatusUIDValidity,
 	}
 
 	status, err := mbox.Status(items)

@@ -68,7 +68,7 @@ func ParseParamList(fields []interface{}) (map[string]string, error) {
 	for i, f := range fields {
 		p, err := ParseString(f)
 		if err != nil {
-			return nil, errors.New("Parameter list contains a non-string: " + err.Error())
+			return nil, errors.New("parameter list contains a non-string: " + err.Error())
 		}
 
 		if i%2 == 0 {
@@ -80,7 +80,7 @@ func ParseParamList(fields []interface{}) (map[string]string, error) {
 	}
 
 	if k != "" {
-		return nil, errors.New("Parameter list contains a key without a value")
+		return nil, errors.New("parameter list contains a key without a value")
 	}
 	return params, nil
 }
@@ -154,7 +154,7 @@ type Message struct {
 	// The message size.
 	Size uint32
 	// The message unique identifier. It must be greater than or equal to 1.
-	Uid uint32
+	UID uint32
 	// The message body sections.
 	Body map[*BodySectionName]Literal
 
@@ -238,8 +238,8 @@ func (m *Message) Parse(fields []interface{}) error {
 				m.InternalDate, _ = time.Parse(DateTimeLayout, date)
 			case FetchRFC822Size:
 				m.Size, _ = ParseNumber(f)
-			case FetchUid:
-				m.Uid, _ = ParseNumber(f)
+			case FetchUID:
+				m.UID, _ = ParseNumber(f)
 			default:
 				// Likely to be a section of the body
 				// First check that the section name is correct
@@ -277,8 +277,8 @@ func (m *Message) formatItem(k FetchItem) []interface{} {
 		v = m.InternalDate
 	case FetchRFC822Size:
 		v = m.Size
-	case FetchUid:
-		v = m.Uid
+	case FetchUID:
+		v = m.UID
 	default:
 		for section, literal := range m.Body {
 			if section.value == k {
@@ -357,12 +357,12 @@ func (section *BodySectionName) parse(s string) error {
 
 	partStart := strings.Index(s, "[")
 	if partStart == -1 {
-		return errors.New("Invalid body section name: must contain an open bracket")
+		return errors.New("invalid body section name: must contain an open bracket")
 	}
 
 	partEnd := strings.LastIndex(s, "]")
 	if partEnd == -1 {
-		return errors.New("Invalid body section name: must contain a close bracket")
+		return errors.New("invalid body section name: must contain a close bracket")
 	}
 
 	name := s[:partStart]
@@ -372,7 +372,7 @@ func (section *BodySectionName) parse(s string) error {
 	if name == "BODY.PEEK" {
 		section.Peek = true
 	} else if name != "BODY" {
-		return errors.New("Invalid body section name")
+		return errors.New("invalid body section name")
 	}
 
 	b := bytes.NewBufferString(part + string(cr) + string(lf))
@@ -388,7 +388,7 @@ func (section *BodySectionName) parse(s string) error {
 
 	if len(partial) > 0 {
 		if !strings.HasPrefix(partial, "<") || !strings.HasSuffix(partial, ">") {
-			return errors.New("Invalid body section name: invalid partial")
+			return errors.New("invalid body section name: invalid partial")
 		}
 		partial = partial[1 : len(partial)-1]
 
@@ -396,13 +396,13 @@ func (section *BodySectionName) parse(s string) error {
 
 		var from, length int
 		if from, err = strconv.Atoi(partialParts[0]); err != nil {
-			return errors.New("Invalid body section name: invalid partial: invalid from: " + err.Error())
+			return errors.New("invalid body section name: invalid partial: invalid from: " + err.Error())
 		}
 		section.Partial = []int{from}
 
 		if len(partialParts) == 2 {
 			if length, err = strconv.Atoi(partialParts[1]); err != nil {
-				return errors.New("Invalid body section name: invalid partial: invalid length: " + err.Error())
+				return errors.New("invalid body section name: invalid partial: invalid length: " + err.Error())
 			}
 			section.Partial = append(section.Partial, length)
 		}
@@ -513,7 +513,7 @@ func (part *BodyPartName) parse(fields []interface{}) error {
 
 	name, ok := fields[0].(string)
 	if !ok {
-		return errors.New("Invalid body section name: part name must be a string")
+		return errors.New("invalid body section name: part name must be a string")
 	}
 
 	args := fields[1:]
@@ -535,7 +535,7 @@ loop:
 			return errors.New("Invalid body part name: " + err.Error())
 		}
 		if index <= 0 {
-			return errors.New("Invalid body part name: index <= 0")
+			return errors.New("invalid body part name: index <= 0")
 		}
 
 		part.Path = append(part.Path, index)
@@ -549,7 +549,7 @@ loop:
 
 		names, ok := args[0].([]interface{})
 		if !ok {
-			return errors.New("Invalid body part name: HEADER.FIELDS must have a list argument")
+			return errors.New("invalid body part name: HEADER.FIELDS must have a list argument")
 		}
 
 		for _, namei := range names {
@@ -723,10 +723,10 @@ type Envelope struct {
 	Cc []*Address
 	// The Bcc header addresses.
 	Bcc []*Address
-	// The In-Reply-To header. Contains the parent Message-Id.
+	// The In-Reply-To header. Contains the parent Message-ID.
 	InReplyTo string
-	// The Message-Id header.
-	MessageId string
+	// The Message-ID header.
+	MessageID string
 }
 
 // Parse an envelope from fields.
@@ -762,8 +762,8 @@ func (e *Envelope) Parse(fields []interface{}) error {
 	if inReplyTo, ok := fields[8].(string); ok {
 		e.InReplyTo = inReplyTo
 	}
-	if msgId, ok := fields[9].(string); ok {
-		e.MessageId = msgId
+	if msgID, ok := fields[9].(string); ok {
+		e.MessageID = msgID
 	}
 
 	return nil
@@ -781,7 +781,7 @@ func (e *Envelope) Format() (fields []interface{}) {
 		FormatAddressList(e.Cc),
 		FormatAddressList(e.Bcc),
 		e.InReplyTo,
-		e.MessageId,
+		e.MessageID,
 	}
 }
 
@@ -797,8 +797,8 @@ type BodyStructure struct {
 	// The MIME parameters.
 	Params map[string]string
 
-	// The Content-Id header.
-	Id string
+	// The Content-ID header.
+	ID string
 	// The Content-Description header.
 	Description string
 	// The Content-Encoding header.
@@ -906,7 +906,7 @@ func (bs *BodyStructure) Parse(fields []interface{}) error {
 		}
 	case string: // A non-multipart body part
 		if len(fields) < 7 {
-			return errors.New("Non-multipart body part doesn't have 7 fields")
+			return errors.New("non-multipart body part doesn't have 7 fields")
 		}
 
 		bs.MIMEType, _ = fields[0].(string)
@@ -915,7 +915,7 @@ func (bs *BodyStructure) Parse(fields []interface{}) error {
 		params, _ := fields[2].([]interface{})
 		bs.Params, _ = parseHeaderParamList(params)
 
-		bs.Id, _ = fields[3].(string)
+		bs.ID, _ = fields[3].(string)
 		if desc, err := ParseString(fields[4]); err == nil {
 			bs.Description, _ = decodeHeader(desc)
 		}
@@ -927,7 +927,7 @@ func (bs *BodyStructure) Parse(fields []interface{}) error {
 		// Type-specific fields
 		if strings.EqualFold(bs.MIMEType, "message") && strings.EqualFold(bs.MIMESubType, "rfc822") {
 			if len(fields)-end < 3 {
-				return errors.New("Missing type-specific fields for message/rfc822")
+				return errors.New("missing type-specific fields for message/rfc822")
 			}
 
 			envelope, _ := fields[end].([]interface{})
@@ -944,7 +944,7 @@ func (bs *BodyStructure) Parse(fields []interface{}) error {
 		}
 		if strings.EqualFold(bs.MIMEType, "text") {
 			if len(fields)-end < 1 {
-				return errors.New("Missing type-specific fields for text/*")
+				return errors.New("missing type-specific fields for text/*")
 			}
 
 			bs.Lines, _ = ParseNumber(fields[end])
@@ -1026,8 +1026,8 @@ func (bs *BodyStructure) Format() (fields []interface{}) {
 		fields[1] = bs.MIMESubType
 		fields[2] = formatHeaderParamList(bs.Params)
 
-		if bs.Id != "" {
-			fields[3] = bs.Id
+		if bs.ID != "" {
+			fields[3] = bs.ID
 		}
 		if bs.Description != "" {
 			fields[4] = encodeHeader(bs.Description)

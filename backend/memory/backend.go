@@ -19,7 +19,7 @@ func (be *Backend) Login(_ *imap.ConnInfo, username, password string) (backend.U
 		return user, nil
 	}
 
-	return nil, errors.New("Bad username or password")
+	return nil, errors.New("bad username or password")
 }
 
 func New() *Backend {
@@ -40,7 +40,7 @@ func New() *Backend {
 			user: user,
 			Messages: []*Message{
 				{
-					Uid:   6,
+					UID:   6,
 					Date:  time.Now(),
 					Flags: []string{"\\Seen"},
 					Size:  uint32(len(body)),

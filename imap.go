@@ -14,8 +14,8 @@ type StatusItem string
 const (
 	StatusMessages    StatusItem = "MESSAGES"
 	StatusRecent      StatusItem = "RECENT"
-	StatusUidNext     StatusItem = "UIDNEXT"
-	StatusUidValidity StatusItem = "UIDVALIDITY"
+	StatusUIDNext     StatusItem = "UIDNEXT"
+	StatusUIDValidity StatusItem = "UIDVALIDITY"
 	StatusUnseen      StatusItem = "UNSEEN"
 )
 
@@ -39,7 +39,7 @@ const (
 	FetchRFC822Header  FetchItem = "RFC822.HEADER"
 	FetchRFC822Size    FetchItem = "RFC822.SIZE"
 	FetchRFC822Text    FetchItem = "RFC822.TEXT"
-	FetchUid           FetchItem = "UID"
+	FetchUID           FetchItem = "UID"
 )
 
 // Expand expands the item if it's a macro.
@@ -94,7 +94,7 @@ func ParseFlagsOp(item StoreItem) (op FlagsOp, silent bool, err error) {
 	op = FlagsOp(itemStr)
 
 	if op != SetFlags && op != AddFlags && op != RemoveFlags {
-		err = errors.New("Unsupported STORE operation")
+		err = errors.New("unsupported STORE operation")
 	}
 	return
 }

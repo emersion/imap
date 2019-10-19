@@ -150,11 +150,11 @@ func (s *SeqSet) AddNum(q ...uint32) {
 }
 
 // AddRange inserts a new sequence range into the set.
-func (s *SeqSet) AddRange(Start, Stop uint32) {
-	if (Stop < Start && Stop != 0) || Start == 0 {
-		s.insert(Seq{Stop, Start})
+func (s *SeqSet) AddRange(start, stop uint32) {
+	if (stop < start && stop != 0) || start == 0 {
+		s.insert(Seq{stop, start})
 	} else {
-		s.insert(Seq{Start, Stop})
+		s.insert(Seq{start, stop})
 	}
 }
 
@@ -252,15 +252,15 @@ func (s *SeqSet) insert(v Seq) {
 
 // insertAt inserts a new sequence value v at index i, resizing s.Set as needed.
 func (s *SeqSet) insertAt(i int, v Seq) {
-	if n := len(s.Set); i == n {
+	n := len(s.Set)
+	switch {
+	case i == n:
 		// insert at the end
 		s.Set = append(s.Set, v)
-		return
-	} else if n < cap(s.Set) {
-		// enough space, shift everything at and after i to the right
+	case n < cap(s.Set):
 		s.Set = s.Set[:n+1]
 		copy(s.Set[i+1:], s.Set[i:])
-	} else {
+	default:
 		// allocate new slice and copy everything, n is at least 1
 		set := make([]Seq, n+1, n*2)
 		copy(set, s.Set[:i])

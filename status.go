@@ -51,8 +51,8 @@ const (
 	CodeReadOnly       StatusRespCode = "READ-ONLY"
 	CodeReadWrite      StatusRespCode = "READ-WRITE"
 	CodeTryCreate      StatusRespCode = "TRYCREATE"
-	CodeUidNext        StatusRespCode = "UIDNEXT"
-	CodeUidValidity    StatusRespCode = "UIDVALIDITY"
+	CodeUIDNext        StatusRespCode = "UIDNEXT"
+	CodeUIDValidity    StatusRespCode = "UIDVALIDITY"
 	CodeUnseen         StatusRespCode = "UNSEEN"
 )
 
@@ -94,7 +94,7 @@ func (r *StatusResp) WriteTo(w *Writer) error {
 		tag = "*"
 	}
 
-	if err := w.writeFields([]interface{}{RawString(tag), RawString(r.Type)}); err != nil {
+	if err := w.writeFields([]interface{}{tag, RawString(r.Type)}); err != nil {
 		return err
 	}
 
