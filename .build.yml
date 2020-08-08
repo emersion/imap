@@ -10,6 +10,10 @@ tasks:
   - build: |
       cd go-imap
       go build -v ./...
+  - lint: |
+      curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.27.0
+      cd go-imap
+      $(go env GOPATH)/bin/golangci-lint run ./... || true
   - test: |
       cd go-imap
       go test -coverprofile=coverage.txt -covermode=atomic ./...

@@ -9,7 +9,7 @@ import (
 	"github.com/emersion/go-imap/backend/backendutil"
 )
 
-var Delimiter = "/"
+const Delimiter = "/"
 
 type Mailbox struct {
 	Subscribed bool
@@ -52,7 +52,7 @@ func (mbox *Mailbox) flags() []string {
 		}
 	}
 
-	var flags []string
+	flags := make([]string, 0, len(flagsMap))
 	for f := range flagsMap {
 		flags = append(flags, f)
 	}

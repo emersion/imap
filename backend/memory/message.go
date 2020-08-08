@@ -13,7 +13,7 @@ import (
 )
 
 type Message struct {
-	Uid   uint32
+	Uid   uint32 //nolint[stylecheck]
 	Date  time.Time
 	Size  uint32
 	Flags []string
