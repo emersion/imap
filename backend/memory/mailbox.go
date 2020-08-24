@@ -1,9 +1,6 @@
 package memory
 
 import (
-	"io/ioutil"
-	"time"
-
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/backend"
 	"github.com/emersion/go-imap/backend/backendutil"
@@ -19,11 +16,17 @@ type Mailbox struct {
 	user *User
 }
 
+type SelectedMailbox struct {
+	*Mailbox
+	conn     backend.Conn
+	readOnly bool
+}
+
 func (mbox *Mailbox) Name() string {
 	return mbox.name
 }
 
-func (mbox *Mailbox) Info() (*imap.MailboxInfo, error) {
+func (mbox *Mailbox) info() (*imap.MailboxInfo, error) {
 	info := &imap.MailboxInfo{
 		Delimiter: Delimiter,
 		Name:      mbox.name,
@@ -78,40 +81,11 @@ func (mbox *Mailbox) unseenSeqNum() uint32 {
 	return 0
 }
 
-func (mbox *Mailbox) Status(items []imap.StatusItem) (*imap.MailboxStatus, error) {
-	status := imap.NewMailboxStatus(mbox.name, items)
-	status.Flags = mbox.flags()
-	status.PermanentFlags = []string{"\\*"}
-	status.UnseenSeqNum = mbox.unseenSeqNum()
-
-	for _, name := range items {
-		switch name {
-		case imap.StatusMessages:
-			status.Messages = uint32(len(mbox.Messages))
-		case imap.StatusUidNext:
-			status.UidNext = mbox.uidNext()
-		case imap.StatusUidValidity:
-			status.UidValidity = 1
-		case imap.StatusRecent:
-			status.Recent = 0 // TODO
-		case imap.StatusUnseen:
-			status.Unseen = 0 // TODO
-		}
-	}
-
-	return status, nil
-}
-
-func (mbox *Mailbox) SetSubscribed(subscribed bool) error {
-	mbox.Subscribed = subscribed
+func (mbox *Mailbox) Poll(_ bool) error {
 	return nil
 }
 
-func (mbox *Mailbox) Check() error {
-	return nil
-}
-
-func (mbox *Mailbox) ListMessages(uid bool, seqSet *imap.SeqSet, items []imap.FetchItem, ch chan<- *imap.Message) error {
+func (mbox *Mailbox) ListMessages(uid bool, seqSet *imap.SeqSet, items []imap.FetchItem, ch chan<- *imap.Message, _ []backend.ExtensionOption) ([]backend.ExtensionResult, error) {
 	defer close(ch)
 
 	for i, msg := range mbox.Messages {
@@ -135,10 +109,10 @@ func (mbox *Mailbox) ListMessages(uid bool, seqSet *imap.SeqSet, items []imap.Fe
 		ch <- m
 	}
 
-	return nil
+	return nil, nil
 }
 
-func (mbox *Mailbox) SearchMessages(uid bool, criteria *imap.SearchCriteria) ([]uint32, error) {
+func (mbox *Mailbox) SearchMessages(uid bool, criteria *imap.SearchCriteria, _ []backend.ExtensionOption) ([]backend.ExtensionResult, []uint32, error) {
 	var ids []uint32
 	for i, msg := range mbox.Messages {
 		seqNum := uint32(i + 1)
@@ -156,30 +130,11 @@ func (mbox *Mailbox) SearchMessages(uid bool, criteria *imap.SearchCriteria) ([]
 		}
 		ids = append(ids, id)
 	}
-	return ids, nil
+	return nil, ids, nil
 }
 
-func (mbox *Mailbox) CreateMessage(flags []string, date time.Time, body imap.Literal) error {
-	if date.IsZero() {
-		date = time.Now()
-	}
-
-	b, err := ioutil.ReadAll(body)
-	if err != nil {
-		return err
-	}
-
-	mbox.Messages = append(mbox.Messages, &Message{
-		Uid:   mbox.uidNext(),
-		Date:  date,
-		Size:  uint32(len(b)),
-		Flags: flags,
-		Body:  b,
-	})
-	return nil
-}
-
-func (mbox *Mailbox) UpdateMessagesFlags(uid bool, seqset *imap.SeqSet, op imap.FlagsOp, flags []string) error {
+func (mbox *SelectedMailbox) UpdateMessagesFlags(uid bool, seqset *imap.SeqSet, op imap.FlagsOp,
+	silent bool, flags []string, _ []backend.ExtensionOption) ([]backend.ExtensionResult, error) {
 	for i, msg := range mbox.Messages {
 		var id uint32
 		if uid {
@@ -192,16 +147,28 @@ func (mbox *Mailbox) UpdateMessagesFlags(uid bool, seqset *imap.SeqSet, op imap.
 		}
 
 		msg.Flags = backendutil.UpdateFlags(msg.Flags, op, flags)
+
+		if !silent {
+			updMsg := imap.NewMessage(uint32(i+1), []imap.FetchItem{imap.FetchFlags})
+			updMsg.Flags = msg.Flags
+			if uid {
+				updMsg.Items[imap.FetchUid] = nil
+				updMsg.Uid = msg.Uid
+			}
+			mbox.conn.SendUpdate(&backend.MessageUpdate{Message: updMsg})
+		}
 	}
 
-	return nil
+	return nil, nil
 }
 
-func (mbox *Mailbox) CopyMessages(uid bool, seqset *imap.SeqSet, destName string) error {
+func (mbox *Mailbox) CopyMessages(uid bool, seqset *imap.SeqSet, destName string, _ []backend.ExtensionOption) ([]backend.ExtensionResult, error) {
 	dest, ok := mbox.user.mailboxes[destName]
 	if !ok {
-		return backend.ErrNoSuchMailbox
+		return nil, backend.ErrNoSuchMailbox
 	}
+
+	var srcSet, destSet imap.SeqSet
 
 	for i, msg := range mbox.Messages {
 		var id uint32
@@ -214,15 +181,32 @@ func (mbox *Mailbox) CopyMessages(uid bool, seqset *imap.SeqSet, destName string
 			continue
 		}
 
+		srcSet.AddNum(msg.Uid)
+
 		msgCopy := *msg
 		msgCopy.Uid = dest.uidNext()
 		dest.Messages = append(dest.Messages, &msgCopy)
+		destSet.AddNum(msgCopy.Uid)
 	}
 
-	return nil
+	return []backend.ExtensionResult{
+		backend.CopyUIDs{
+			Source:      &srcSet,
+			UIDValidity: 1,
+			Dest:        &destSet,
+		},
+	}, nil
 }
 
-func (mbox *Mailbox) Expunge() error {
+func (mbox *SelectedMailbox) Expunge(opts []backend.ExtensionOption) ([]backend.ExtensionResult, error) {
+	var allowedUIDs *imap.SeqSet
+	for _, opt := range opts {
+		switch opt := opt.(type) {
+		case backend.ExpungeSeqSet:
+			allowedUIDs = opt.SeqSet
+		}
+	}
+
 	for i := len(mbox.Messages) - 1; i >= 0; i-- {
 		msg := mbox.Messages[i]
 
@@ -234,12 +218,18 @@ func (mbox *Mailbox) Expunge() error {
 			}
 		}
 
+		if allowedUIDs != nil && !allowedUIDs.Contains(msg.Uid) {
+			continue
+		}
+
 		if deleted {
 			mbox.Messages = append(mbox.Messages[:i], mbox.Messages[i+1:]...)
+
+			mbox.conn.SendUpdate(&backend.ExpungeUpdate{SeqNum: uint32(i + 1)})
 		}
 	}
 
-	return nil
+	return nil, nil
 }
 
 func (mbox *Mailbox) Close() error {

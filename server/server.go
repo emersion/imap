@@ -13,7 +13,6 @@ import (
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/backend"
-	"github.com/emersion/go-imap/responses"
 	"github.com/emersion/go-sasl"
 )
 
@@ -89,9 +88,10 @@ type Server struct {
 	listeners map[net.Listener]struct{}
 	conns     map[Conn]struct{}
 
-	commands   map[string]HandlerFactory
-	auths      map[string]SASLServerFactory
-	extensions []Extension
+	commands    map[string]HandlerFactory
+	auths       map[string]SASLServerFactory
+	extensions  []Extension
+	backendExts map[backend.Extension]struct{}
 
 	// TCP address to listen on.
 	Addr string
@@ -99,8 +99,6 @@ type Server struct {
 	TLSConfig *tls.Config
 	// This server's backend.
 	Backend backend.Backend
-	// Backend updates that will be sent to connected clients.
-	Updates <-chan backend.Update
 	// Automatically logout clients after a duration. To do not logout users
 	// automatically, set this to zero. The duration MUST be at least
 	// MinAutoLogout (as stated in RFC 3501 section 5.4).
@@ -122,10 +120,15 @@ type Server struct {
 // Create a new IMAP server from an existing listener.
 func New(bkd backend.Backend) *Server {
 	s := &Server{
-		listeners: make(map[net.Listener]struct{}),
-		conns:     make(map[Conn]struct{}),
-		Backend:   bkd,
-		ErrorLog:  log.New(os.Stderr, "imap/server: ", log.LstdFlags),
+		listeners:   make(map[net.Listener]struct{}),
+		conns:       make(map[Conn]struct{}),
+		backendExts: map[backend.Extension]struct{}{},
+		Backend:     bkd,
+		ErrorLog:    log.New(os.Stderr, "imap/server: ", log.LstdFlags),
+	}
+
+	for _, ext := range bkd.SupportedExtensions() {
+		s.backendExts[ext] = struct{}{}
 	}
 
 	s.auths = map[string]SASLServerFactory{
@@ -202,12 +205,6 @@ func (s *Server) Serve(l net.Listener) error {
 		l.Close()
 		delete(s.listeners, l)
 	}()
-
-	updater, ok := s.Backend.(backend.BackendUpdater)
-	if ok {
-		s.Updates = updater.Updates()
-		go s.listenUpdates()
-	}
 
 	for {
 		c, err := l.Accept()
@@ -287,89 +284,6 @@ func (s *Server) Command(name string) HandlerFactory {
 	}
 
 	return s.commands[name]
-}
-
-func (s *Server) listenUpdates() {
-	for {
-		update := <-s.Updates
-
-		var res imap.WriterTo
-		switch update := update.(type) {
-		case *backend.StatusUpdate:
-			res = update.StatusResp
-		case *backend.MailboxUpdate:
-			res = &responses.Select{Mailbox: update.MailboxStatus}
-		case *backend.MailboxInfoUpdate:
-			ch := make(chan *imap.MailboxInfo, 1)
-			ch <- update.MailboxInfo
-			close(ch)
-
-			res = &responses.List{Mailboxes: ch}
-		case *backend.MessageUpdate:
-			ch := make(chan *imap.Message, 1)
-			ch <- update.Message
-			close(ch)
-
-			res = &responses.Fetch{Messages: ch}
-		case *backend.ExpungeUpdate:
-			ch := make(chan uint32, 1)
-			ch <- update.SeqNum
-			close(ch)
-
-			res = &responses.Expunge{SeqNums: ch}
-		default:
-			s.ErrorLog.Printf("unhandled update: %T\n", update)
-		}
-		if res == nil {
-			continue
-		}
-
-		sends := make(chan struct{})
-		wait := 0
-		s.locker.Lock()
-		for conn := range s.conns {
-			ctx := conn.Context()
-
-			if update.Username() != "" && (ctx.User == nil || ctx.User.Username() != update.Username()) {
-				continue
-			}
-			if update.Mailbox() != "" && (ctx.Mailbox == nil || ctx.Mailbox.Name() != update.Mailbox()) {
-				continue
-			}
-			if *conn.silent() {
-				// If silent is set, do not send message updates
-				if _, ok := res.(*responses.Fetch); ok {
-					continue
-				}
-			}
-
-			conn := conn // Copy conn to a local variable
-			go func() {
-				done := make(chan struct{})
-				conn.Context().Responses <- &response{
-					response: res,
-					done:     done,
-				}
-				<-done
-				sends <- struct{}{}
-			}()
-
-			wait++
-		}
-		s.locker.Unlock()
-
-		if wait > 0 {
-			go func() {
-				for done := 0; done < wait; done++ {
-					<-sends
-				}
-
-				close(update.Done())
-			}()
-		} else {
-			close(update.Done())
-		}
-	}
 }
 
 // ForEachConn iterates through all opened connections.
