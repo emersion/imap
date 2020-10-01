@@ -28,31 +28,21 @@ func (cmd *Select) Handle(conn Conn) error {
 	// 		fails is attempted, no mailbox is selected.
 	// For example, some clients (e.g. Apple Mail) perform SELECT "" when the
 	// server doesn't announce the UNSELECT capability.
+	if ctx.Mailbox != nil {
+		ctx.Mailbox.Close()
+	}
 	ctx.Mailbox = nil
 	ctx.MailboxReadOnly = false
 
 	if ctx.User == nil {
 		return ErrNotAuthenticated
 	}
-	mbox, err := ctx.User.GetMailbox(cmd.Mailbox)
+
+	status, mbox, err := ctx.User.GetMailbox(cmd.Mailbox, cmd.ReadOnly, conn)
 	if err != nil {
 		return err
 	}
 
-	items := []imap.StatusItem{
-		imap.StatusMessages, imap.StatusRecent, imap.StatusUnseen,
-		imap.StatusUidNext, imap.StatusUidValidity,
-	}
-
-	status, err := mbox.Status(items)
-	if err != nil {
-		mbox.Close()
-		return err
-	}
-
-	if ctx.Mailbox != nil {
-		ctx.Mailbox.Close()
-	}
 	ctx.Mailbox = mbox
 	ctx.MailboxReadOnly = cmd.ReadOnly || status.ReadOnly
 
@@ -61,7 +51,7 @@ func (cmd *Select) Handle(conn Conn) error {
 		return err
 	}
 
-	var code imap.StatusRespCode = imap.CodeReadWrite
+	code := imap.CodeReadWrite
 	if ctx.MailboxReadOnly {
 		code = imap.CodeReadOnly
 	}
@@ -120,13 +110,7 @@ func (cmd *Subscribe) Handle(conn Conn) error {
 		return ErrNotAuthenticated
 	}
 
-	mbox, err := ctx.User.GetMailbox(cmd.Mailbox)
-	if err != nil {
-		return err
-	}
-	defer mbox.Close()
-
-	return mbox.SetSubscribed(true)
+	return ctx.User.SetSubscribed(cmd.Mailbox, true)
 }
 
 type Unsubscribe struct {
@@ -139,13 +123,7 @@ func (cmd *Unsubscribe) Handle(conn Conn) error {
 		return ErrNotAuthenticated
 	}
 
-	mbox, err := ctx.User.GetMailbox(cmd.Mailbox)
-	if err != nil {
-		return err
-	}
-	defer mbox.Close()
-
-	return mbox.SetSubscribed(false)
+	return ctx.User.SetSubscribed(cmd.Mailbox, false)
 }
 
 type List struct {
@@ -212,13 +190,7 @@ func (cmd *Status) Handle(conn Conn) error {
 		return ErrNotAuthenticated
 	}
 
-	mbox, err := ctx.User.GetMailbox(cmd.Mailbox)
-	if err != nil {
-		return err
-	}
-	defer mbox.Close()
-
-	status, err := mbox.Status(cmd.Items)
+	status, err := ctx.User.Status(cmd.Mailbox, cmd.Items)
 	if err != nil {
 		return err
 	}
@@ -244,38 +216,23 @@ func (cmd *Append) Handle(conn Conn) error {
 		return ErrNotAuthenticated
 	}
 
-	mbox, err := ctx.User.GetMailbox(cmd.Mailbox)
-	if err == backend.ErrNoSuchMailbox {
-		return ErrStatusResp(&imap.StatusResp{
-			Type: imap.StatusRespNo,
-			Code: imap.CodeTryCreate,
-			Info: err.Error(),
-		})
-	} else if err != nil {
-		return err
-	}
-	defer mbox.Close()
-
-	if err := mbox.CreateMessage(cmd.Flags, cmd.Date, cmd.Message); err != nil {
+	if err := ctx.User.CreateMessage(cmd.Mailbox, cmd.Flags, cmd.Date, cmd.Message, ctx.Mailbox); err != nil {
+		if err == backend.ErrNoSuchMailbox {
+			return ErrStatusResp(&imap.StatusResp{
+				Type: imap.StatusRespNo,
+				Code: imap.CodeTryCreate,
+				Info: "No such mailbox",
+			})
+		}
 		return err
 	}
 
-	// If APPEND targets the currently selected mailbox, send an untagged EXISTS
-	// Do this only if the backend doesn't send updates itself
-	if conn.Server().Updates == nil && ctx.Mailbox != nil && ctx.Mailbox.Name() == mbox.Name() {
-		status, err := mbox.Status([]imap.StatusItem{imap.StatusMessages})
-		if err != nil {
-			return err
-		}
-		status.Flags = nil
-		status.PermanentFlags = nil
-		status.UnseenSeqNum = 0
-
-		res := &responses.Select{Mailbox: status}
-		if err := conn.WriteResp(res); err != nil {
-			return err
-		}
+	// If User.CreateMessage is called the backend has no way of knowing it should
+	// send any updates while RFC 3501 says it "SHOULD" send EXISTS. This call
+	// requests it to send any relevant updates. It may result in it sending
+	// more updates than just EXISTS, in particular we allow EXPUNGE updates.
+	if ctx.Mailbox != nil && ctx.Mailbox.Name() == cmd.Mailbox {
+		return ctx.Mailbox.Poll(true)
 	}
-
 	return nil
 }

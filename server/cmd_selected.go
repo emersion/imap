@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/emersion/go-imap"
+	"github.com/emersion/go-imap/backend"
 	"github.com/emersion/go-imap/commands"
 	"github.com/emersion/go-imap/responses"
 )
@@ -35,7 +36,7 @@ func (cmd *Check) Handle(conn Conn) error {
 		return ErrMailboxReadOnly
 	}
 
-	return ctx.Mailbox.Check()
+	return ctx.Mailbox.Poll(true)
 }
 
 type Close struct {
@@ -69,56 +70,7 @@ func (cmd *Expunge) Handle(conn Conn) error {
 		return ErrMailboxReadOnly
 	}
 
-	// Get a list of messages that will be deleted
-	// That will allow us to send expunge updates if the backend doesn't support it
-	var seqnums []uint32
-	if conn.Server().Updates == nil {
-		criteria := &imap.SearchCriteria{
-			WithFlags: []string{imap.DeletedFlag},
-		}
-
-		var err error
-		seqnums, err = ctx.Mailbox.SearchMessages(false, criteria)
-		if err != nil {
-			return err
-		}
-	}
-
-	if err := ctx.Mailbox.Expunge(); err != nil {
-		return err
-	}
-
-	// If the backend doesn't support expunge updates, let's do it ourselves
-	if conn.Server().Updates == nil {
-		done := make(chan error, 1)
-
-		ch := make(chan uint32)
-		res := &responses.Expunge{SeqNums: ch}
-
-		go (func() {
-			done <- conn.WriteResp(res)
-			// Don't need to drain 'ch', sender will stop sending when error written to 'done.
-		})()
-
-		// Iterate sequence numbers from the last one to the first one, as deleting
-		// messages changes their respective numbers
-		for i := len(seqnums) - 1; i >= 0; i-- {
-			// Send sequence numbers to channel, and check if conn.WriteResp() finished early.
-			select {
-			case ch <- seqnums[i]: // Send next seq. number
-			case err := <-done: // Check for errors
-				close(ch)
-				return err
-			}
-		}
-		close(ch)
-
-		if err := <-done; err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return ctx.Mailbox.Expunge()
 }
 
 type Search struct {
@@ -237,29 +189,9 @@ func (cmd *Store) handle(uid bool, conn Conn) error {
 		flags[i] = imap.CanonicalFlag(flag)
 	}
 
-	// If the backend supports message updates, this will prevent this connection
-	// from receiving them
-	// TODO: find a better way to do this, without conn.silent
-	*conn.silent() = silent
-	err = ctx.Mailbox.UpdateMessagesFlags(uid, cmd.SeqSet, op, flags)
-	*conn.silent() = false
+	err = ctx.Mailbox.UpdateMessagesFlags(uid, cmd.SeqSet, op, silent, flags)
 	if err != nil {
 		return err
-	}
-
-	// Not silent: send FETCH updates if the backend doesn't support message
-	// updates
-	if conn.Server().Updates == nil && !silent {
-		inner := &Fetch{}
-		inner.SeqSet = cmd.SeqSet
-		inner.Items = []imap.FetchItem{imap.FetchFlags}
-		if uid {
-			inner.Items = append(inner.Items, "UID")
-		}
-
-		if err := inner.handle(uid, conn); err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -283,7 +215,18 @@ func (cmd *Copy) handle(uid bool, conn Conn) error {
 		return ErrNoMailboxSelected
 	}
 
-	return ctx.Mailbox.CopyMessages(uid, cmd.SeqSet, cmd.Mailbox)
+	err := ctx.Mailbox.CopyMessages(uid, cmd.SeqSet, cmd.Mailbox)
+	if err != nil {
+		if err == backend.ErrNoSuchMailbox {
+			return ErrStatusResp(&imap.StatusResp{
+				Type: imap.StatusRespNo,
+				Code: imap.CodeTryCreate,
+				Info: "No such mailbox",
+			})
+		}
+		return err
+	}
+	return nil
 }
 
 func (cmd *Copy) Handle(conn Conn) error {

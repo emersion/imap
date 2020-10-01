@@ -1,8 +1,6 @@
 package backend
 
 import (
-	"time"
-
 	"github.com/emersion/go-imap"
 )
 
@@ -18,23 +16,11 @@ type Mailbox interface {
 	// Info returns this mailbox info.
 	Info() (*imap.MailboxInfo, error)
 
-	// Status returns this mailbox status. The fields Name, Flags, PermanentFlags
-	// and UnseenSeqNum in the returned MailboxStatus must be always populated.
-	// This function does not affect the state of any messages in the mailbox. See
-	// RFC 3501 section 6.3.10 for a list of items that can be requested.
-	Status(items []imap.StatusItem) (*imap.MailboxStatus, error)
-
-	// SetSubscribed adds or removes the mailbox to the server's set of "active"
-	// or "subscribed" mailboxes.
-	SetSubscribed(subscribed bool) error
-
-	// Check requests a checkpoint of the currently selected mailbox. A checkpoint
-	// refers to any implementation-dependent housekeeping associated with the
-	// mailbox (e.g., resolving the server's in-memory state of the mailbox with
-	// the state on its disk). A checkpoint MAY take a non-instantaneous amount of
-	// real time to complete. If a server implementation has no such housekeeping
-	// considerations, CHECK is equivalent to NOOP.
-	Check() error
+	// Poll requests any pending mailbox updates to be sent.
+	//
+	// Argument indicates whether EXPUNGE updates are permitted to be
+	// sent.
+	Poll(expunge bool) error
 
 	// ListMessages returns a list of messages. seqset must be interpreted as UIDs
 	// if uid is set to true and as message sequence numbers otherwise. See RFC
@@ -47,19 +33,11 @@ type Mailbox interface {
 	// uid is set to true, or sequence numbers otherwise.
 	SearchMessages(uid bool, criteria *imap.SearchCriteria) ([]uint32, error)
 
-	// CreateMessage appends a new message to this mailbox. The \Recent flag will
-	// be added no matter flags is empty or not. If date is nil, the current time
-	// will be used.
-	//
-	// If the Backend implements Updater, it must notify the client immediately
-	// via a mailbox update.
-	CreateMessage(flags []string, date time.Time, body imap.Literal) error
-
 	// UpdateMessagesFlags alters flags for the specified message(s).
 	//
 	// If the Backend implements Updater, it must notify the client immediately
 	// via a message update.
-	UpdateMessagesFlags(uid bool, seqset *imap.SeqSet, operation imap.FlagsOp, flags []string) error
+	UpdateMessagesFlags(uid bool, seqset *imap.SeqSet, operation imap.FlagsOp, silent bool, flags []string) error
 
 	// CopyMessages copies the specified message(s) to the end of the specified
 	// destination mailbox. The flags and internal date of the message(s) SHOULD
