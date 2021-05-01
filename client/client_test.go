@@ -184,4 +184,9 @@ func TestClient_unilateral(t *testing.T) {
 	if update, ok := (<-updates).(*StatusUpdate); !ok || update.Status.Info != "Battery level too low, shutting down." {
 		t.Errorf("Invalid error: got %v", update.Status.Info)
 	}
+
+	s.WriteString("* OK [HIGHESTMODSEQ 715194045007]\r\n")
+	if update, ok := (<-updates).(*StatusUpdate); !ok || update.Status.Code != imap.CodeHighestModseq {
+		t.Errorf("Invalid HIGHESTMODSEQ number: expected %v but got %v", imap.CodeHighestModseq, update.Status.Code)
+	}
 }

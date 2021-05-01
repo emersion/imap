@@ -54,6 +54,7 @@ const (
 	CodeUidNext        StatusRespCode = "UIDNEXT"
 	CodeUidValidity    StatusRespCode = "UIDVALIDITY"
 	CodeUnseen         StatusRespCode = "UNSEEN"
+	CodeHighestModseq  StatusRespCode = "HIGHESTMODSEQ"
 )
 
 // A status response.
