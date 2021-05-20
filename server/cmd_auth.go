@@ -253,6 +253,13 @@ func (cmd *Append) Handle(conn Conn) error {
 	}
 
 	if err := mbox.CreateMessage(cmd.Flags, cmd.Date, cmd.Message); err != nil {
+		if err == backend.ErrTooBig {
+			return ErrStatusResp(&imap.StatusResp{
+				Type: imap.StatusRespNo,
+				Code: "TOOBIG",
+				Info: "Message size exceeding limit",
+			})
+		}
 		return err
 	}
 
@@ -273,5 +280,20 @@ func (cmd *Append) Handle(conn Conn) error {
 		}
 	}
 
+	return nil
+}
+
+type Unselect struct {
+	commands.Unselect
+}
+
+func (cmd *Unselect) Handle(conn Conn) error {
+	ctx := conn.Context()
+	if ctx.Mailbox == nil {
+		return ErrNoMailboxSelected
+	}
+
+	ctx.Mailbox = nil
+	ctx.MailboxReadOnly = false
 	return nil
 }

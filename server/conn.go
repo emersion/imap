@@ -163,7 +163,25 @@ func (c *conn) Close() error {
 }
 
 func (c *conn) Capabilities() []string {
-	caps := []string{"IMAP4rev1", "LITERAL+", "SASL-IR", "CHILDREN"}
+	caps := []string{"IMAP4rev1", "LITERAL+", "SASL-IR", "CHILDREN", "UNSELECT", "COMPRESS=DEFLATE"}
+
+	appendLimitSet := false
+	if c.ctx.State == imap.AuthenticatedState {
+		if u, ok := c.ctx.User.(backend.AppendLimitUser); ok {
+			if limit := u.CreateMessageLimit(); limit != nil {
+				caps = append(caps, fmt.Sprintf("APPENDLIMIT=%v", *limit))
+				appendLimitSet = true
+			}
+		}
+	} else if be, ok := c.Server().Backend.(backend.AppendLimitBackend); ok {
+		if limit := be.CreateMessageLimit(); limit != nil {
+			caps = append(caps, fmt.Sprintf("APPENDLIMIT=%v", *limit))
+			appendLimitSet = true
+		}
+	}
+	if !appendLimitSet {
+		caps = append(caps, "APPENDLIMIT")
+	}
 
 	if c.ctx.State == imap.NotAuthenticatedState {
 		if !c.IsTLS() && c.s.TLSConfig != nil {
